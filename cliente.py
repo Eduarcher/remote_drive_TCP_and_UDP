@@ -47,7 +47,7 @@ class TCPClient:
                                          socket.SOCK_DGRAM)  # UDP
                     i = 1
                     while True:
-                        # sleep(2)
+                        sleep(2)
                         file_chunk, file_chunk_size = self.__get_file_chunk()
                         if file_chunk_size == 0:
                             break

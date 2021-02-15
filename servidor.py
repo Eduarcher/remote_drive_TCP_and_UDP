@@ -57,10 +57,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             print("File: ", file_name, file_size)
 
             # Open UDP server
-            udp_sock = socket.socket(socket.AF_INET,  # Internet
-                                     socket.SOCK_DGRAM)  # UDP
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             udp_sock.bind((host, self.udp_port))
-
             self.__response_ok()  # Send ok
 
             # Receive
@@ -69,9 +67,11 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             while received < file_size:
                 file_chunk_data, udp_addr = udp_sock.recvfrom(file_size)
                 received += len(file_chunk_data)
-                print("Receiving data chunk. Size: ", len(file_chunk_data))
+                print(f"Receiving data chunk from <Thread {self.cur_thread.name}>. "
+                      f"Size: {len(file_chunk_data)}")
                 f.write(file_chunk_data)
-            print("Completed")
+            print(f"Completed UDP transfer from <Thread {self.cur_thread.name}>.\n"
+                  f"Total Received: {received} Bytes.")
             f.close()
             udp_sock.close()
 
