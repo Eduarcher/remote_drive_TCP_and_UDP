@@ -17,9 +17,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         super().__init__(request, client_address, server)
 
     def __send_response(self, msg):
-        response = bytes(f"{msg}", "ascii")
         print(f"Sending to <{self.cur_thread.name}>: {msg}")
-        self.request.sendall(response)
+        if type(msg) != bytes:
+            msg = bytes(f"{msg}", "ascii")
+        self.request.sendall(msg)
 
     def __response_connection(self):
         self.udp_port = self.__set_random_udp_port()
@@ -27,6 +28,11 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
     def __response_ok(self):
         self.__send_response("04")
+
+    def __response_ack(self, seq):
+        seq_b = seq.to_bytes(4, 'big')
+        print(seq_b)
+        self.__send_response(b"07" + seq_b)
 
     def __response_end(self):
         testing_tools.compare_files("input", "output")
@@ -61,13 +67,24 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
         # Receive
         received = 0
+        packets_received = []
         f = open("output/" + file_name, "wb")
         while received < file_size:
-            file_chunk_data, udp_addr = udp_sock.recvfrom(file_size)
-            received += len(file_chunk_data)
+            packet, udp_addr = udp_sock.recvfrom(file_size)
+            file_code = int(packet[:2])
+            seq_number = int.from_bytes(packet[2:6], 'big')
+            payload_size = int.from_bytes(packet[6:8], 'big')
+            payload_data = packet[8:]
+            payload_received_size = len(payload_data)
             print(f"Receiving data chunk from <Thread {self.cur_thread.name}>. "
-                  f"Size: {len(file_chunk_data)}")
-            f.write(file_chunk_data)
+                  f"Size: {payload_size} bytes")
+            if seq_number not in packets_received and payload_received_size == payload_size:
+                f.write(payload_data)
+                packets_received.append(seq_number)
+                received += payload_size
+                self.__response_ack(seq_number)
+            elif payload_received_size != payload_size:
+                pass
         print(f"Completed UDP transfer from <Thread {self.cur_thread.name}>.\n"
               f"Total Received: {received} Bytes.")
         f.close()
@@ -121,5 +138,5 @@ if __name__ == "__main__":
         server_thread.start()
         print("Server loop running in thread:", server_thread.name)
         while server.alive:
-            sleep(5)
+            sleep(2)
     server.shutdown()
