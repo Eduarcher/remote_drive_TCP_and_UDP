@@ -7,6 +7,7 @@ import socket
 import sys
 from libs.common import *
 import random
+import testing_tools  # TODO remover antes de enviar
 
 encoding = 'ascii'
 
@@ -28,6 +29,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         self.__send_response("04")
 
     def __response_end(self):
+        testing_tools.compare_files("input", "output")
         self.__send_response("05")
 
     def __set_random_udp_port(self, fmts=(int,)):
@@ -104,6 +106,8 @@ if __name__ == "__main__":
 
     if len(sys.argv) != 2:
         usage("server", sys.argv[0])
+
+    testing_tools.delete_files("output")
 
     host, port = '127.0.0.1', int(sys.argv[1])
 
