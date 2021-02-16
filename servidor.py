@@ -17,7 +17,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         super().__init__(request, client_address, server)
 
     def __send_response(self, msg):
-        response = bytes(f"{msg}", 'ascii')
+        response = bytes(f"{msg}", "ascii")
         print(f"Sending to <{self.cur_thread.name}>: {msg}")
         self.request.sendall(response)
 
@@ -51,46 +51,46 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
     def __handle_udp_transfer(self, req):
         # Prepare reception for file
-        if len(req) > 25:
-            self.__send_response("09")  # Name too large
-            # TODO criar handle 09
-        else:
-            file_name, file_size = self.__get_file_name_and_size(req[2:])
-            print("File: ", file_name, file_size)
+        file_name, file_size = self.__get_file_name_and_size(req[2:])
+        print("File: ", file_name, file_size)
 
-            # Open UDP server
-            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            udp_sock.bind((host, self.udp_port))
-            self.__response_ok()  # Send ok
+        # Open UDP server
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_sock.bind((host, self.udp_port))
+        self.__response_ok()  # Send ok
 
-            # Receive
-            received = 0
-            f = open("output/" + file_name, "wb")
-            while received < file_size:
-                file_chunk_data, udp_addr = udp_sock.recvfrom(file_size)
-                received += len(file_chunk_data)
-                print(f"Receiving data chunk from <Thread {self.cur_thread.name}>. "
-                      f"Size: {len(file_chunk_data)}")
-                f.write(file_chunk_data)
-            print(f"Completed UDP transfer from <Thread {self.cur_thread.name}>.\n"
-                  f"Total Received: {received} Bytes.")
-            f.close()
-            udp_sock.close()
+        # Receive
+        received = 0
+        f = open("output/" + file_name, "wb")
+        while received < file_size:
+            file_chunk_data, udp_addr = udp_sock.recvfrom(file_size)
+            received += len(file_chunk_data)
+            print(f"Receiving data chunk from <Thread {self.cur_thread.name}>. "
+                  f"Size: {len(file_chunk_data)}")
+            f.write(file_chunk_data)
+        print(f"Completed UDP transfer from <Thread {self.cur_thread.name}>.\n"
+              f"Total Received: {received} Bytes.")
+        f.close()
+        udp_sock.close()
 
     # TODO remover todos os *no inspection*
     # noinspection PyAttributeOutsideInit
     def handle(self):
         self.cur_thread = threading.current_thread()
         while server.alive:
-            request = str(self.request.recv(1024), 'ascii')
+            request = str(self.request.recv(1024), "ascii")
             print(f"Received from <Thread {self.cur_thread.name}>: '{request}'")
             msg_id_code = int(request[:2])
             if msg_id_code == 1:
                 self.__response_connection()
             if msg_id_code == 3:
-                self.__handle_udp_transfer(request)
-                self.__response_end()
-                return 0
+                if len(request) > 25:
+                    self.__send_response("09")  # Name too large
+                    # TODO criar handle 09
+                else:
+                    self.__handle_udp_transfer(request)
+                    self.__response_end()
+                    return 0
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -101,7 +101,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 if __name__ == "__main__":
-    if not hasattr(socket, 'SO_REUSEPORT'):
+    if not hasattr(socket, "SO_REUSEPORT"):
         socket.SO_REUSEPORT = 15
 
     if len(sys.argv) != 2:
@@ -109,7 +109,7 @@ if __name__ == "__main__":
 
     testing_tools.delete_files("output")
 
-    host, port = '127.0.0.1', int(sys.argv[1])
+    host, port = "127.0.0.1", int(sys.argv[1])
 
     server = ThreadedTCPServer((host, port), ThreadedTCPRequestHandler)
     with server:
