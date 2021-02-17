@@ -71,7 +71,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         latest_packet = -1
         f = open("output/" + file_name, "wb")
         while received < file_size:
-            packet, udp_addr = udp_sock.recvfrom(file_size)
+            packet = udp_sock.recv(file_size)
+            print("Packet received: ", packet)
             file_code = int(packet[:2])
             seq_number = int.from_bytes(packet[2:6], 'big')
             payload_size = int.from_bytes(packet[6:8], 'big')
@@ -151,7 +152,7 @@ if __name__ == "__main__":
         # Exit the server thread when the main thread terminates
         server_thread.daemon = True
         server_thread.start()
-        print("Server loop running in thread:", server_thread.name)
+        print("Server loop running in thread:", server_thread.name, "and Port: ", port)
         while server.alive:
             sleep(2)
     server.shutdown()

@@ -14,12 +14,18 @@ class TCPClient:
         self.file_name = file_name.split("/")[-1]
         self.port = port
 
-    def __receive_response(self, sock, raw=False, print_response=True):
-        sock.settimeout(.1)
-        response = sock.recv(1024)
-        if print_response:
-            print(f"<-- Received: {response}")
-        return response if not raw else str(response, "ascii")
+    def __receive_response(self, sock, raw=False, print_response=True, timeout=False):
+        if timeout:
+            sock.settimeout(timeout)
+        try:
+            response = sock.recv(1024)
+            if print_response:
+                print(f"<-- Received: {response}")
+        except Exception as e:
+            print("No ack:",  e)
+            response = b""
+        finally:
+            return response if raw else str(response, "ascii")
 
     def __get_file_chunk(self, buf=1000):
         data = self.file.read(buf)
@@ -41,19 +47,32 @@ class TCPClient:
         udp_sock = socket.socket(socket.AF_INET,  # Internet
                                  socket.SOCK_DGRAM)  # UDP
         i = 0
-        while True:
-            file_chunk, file_chunk_size = self.__get_file_chunk()
-            if file_chunk_size == 0:
+        packet_count = math.ceil(self.file_size / 1000)
+        packets_status = dict.fromkeys(range(packet_count),
+                                       {"status": 0, "payload": b'', "size": 0})
+        end_transmition = False
+        while not end_transmition:
+            if i == packet_count:
+                end_transmition = True
                 break
-            else:
-                seq_number = i
-                packet = b'06' + seq_number.to_bytes(4, 'big') \
-                         + file_chunk_size.to_bytes(2, 'big') \
-                         + file_chunk
-                print(f"--> Sending packet {i+1}/{math.ceil(self.file_size / 1000)}")
-                udp_sock.sendto(packet, (self.server_ip, udp_port))
-                response = self.__receive_response(tcp_sock, True, False)
-                i += 1
+            for seq_number in range(i, min(i+5, packet_count)):  # TODO: Set window size dinamically
+                print("[DEBUG] Trying to send Packet: ", seq_number, " | i:", i)
+                if packets_status[seq_number]["status"] == 0:
+                    packet_payload, packet_size = self.__get_file_chunk()
+                    packets_status.update({seq_number: {"status": 1, "payload": packet_payload, "size": packet_size}})
+                if packets_status[seq_number]["status"] == 1:
+                    packet = b'06' + seq_number.to_bytes(4, 'big') \
+                             + packets_status[seq_number]["size"].to_bytes(2, 'big') \
+                             + packets_status[seq_number]["payload"]
+                    print(f"--> Sending packet {seq_number+1}/{packet_count}")
+                    udp_sock.sendto(packet, (self.server_ip, udp_port))
+                ack = self.__receive_response(tcp_sock, raw=True,
+                                              print_response=False, timeout=1)
+                if len(ack) > 0 and int(ack[:2]) == 7:
+                    ack_seq_number = int.from_bytes(ack[2:], 'big')
+                    packets_status[ack_seq_number]["status"] = 2
+                    if ack_seq_number == i:
+                        i += 1
         udp_sock.close()
         print("Done")
 
