@@ -15,6 +15,7 @@ class TCPClient:
         self.port = port
 
     def __receive_response(self, sock, raw=False, print_response=True):
+        sock.settimeout(.1)
         response = sock.recv(1024)
         if print_response:
             print(f"<-- Received: {response}")
@@ -80,7 +81,6 @@ if __name__ == "__main__":
         usage("client", sys.argv[0])
 
     ip, port, file_name = sys.argv[1], int(sys.argv[2]), sys.argv[3]
-    # ip, port, file_name = 'localhost', 6969, 'input/test.txt'
     file_size = os.path.getsize(file_name)
 
     client = TCPClient(ip, port, file_name, file_size)

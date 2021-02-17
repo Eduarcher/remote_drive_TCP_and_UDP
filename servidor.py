@@ -31,7 +31,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
     def __response_ack(self, seq):
         seq_b = seq.to_bytes(4, 'big')
-        print(seq_b)
         self.__send_response(b"07" + seq_b)
 
     def __response_end(self):
@@ -68,6 +67,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         # Receive
         received = 0
         packets_received = []
+        packets_buffer = {}
+        latest_packet = -1
         f = open("output/" + file_name, "wb")
         while received < file_size:
             packet, udp_addr = udp_sock.recvfrom(file_size)
@@ -78,8 +79,22 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             payload_received_size = len(payload_data)
             print(f"Receiving data chunk from <Thread {self.cur_thread.name}>. "
                   f"Size: {payload_size} bytes")
+            while True:
+                if latest_packet+1 in packets_buffer.keys():
+                    latest_packet += 1
+                    f.write(packets_buffer[latest_packet])
+                    del packets_buffer[latest_packet]
+                elif len(packets_buffer.keys()) > 50:  # TODO make this a variable somewhere
+                    self.__send_response("10")  # lost a packet too long ago
+                    # TODO criar handle 10
+                else:
+                    break
             if seq_number not in packets_received and payload_received_size == payload_size:
-                f.write(payload_data)
+                if seq_number == latest_packet + 1:
+                    f.write(payload_data)
+                    latest_packet += 1
+                else:
+                    packets_buffer[seq_number] = payload_data
                 packets_received.append(seq_number)
                 received += payload_size
                 self.__response_ack(seq_number)
