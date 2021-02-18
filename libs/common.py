@@ -5,7 +5,7 @@ def usage(alias, file):
     if alias == "client":
         print("usage:", file, "<host> <port> <file>")
     elif alias == "server":
-        print("usage:", file, "<port>")
+        print("usage:", file, "<port> <ip_version (v4|v6)>")
     sys.exit(1)
 
 

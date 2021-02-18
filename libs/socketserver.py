@@ -434,8 +434,6 @@ class TCPServer(BaseServer):
 
     """
 
-    address_family = socket.AF_INET
-
     socket_type = socket.SOCK_STREAM
 
     request_queue_size = 5
@@ -445,6 +443,13 @@ class TCPServer(BaseServer):
     def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True):
         """Constructor.  May be extended, do not override."""
         BaseServer.__init__(self, server_address, RequestHandlerClass)
+        if self.is_valid_ipv4_address(server_address[0]):
+            self.address_family = socket.AF_INET
+        elif self.is_valid_ipv6_address(server_address[0]):
+            self.address_family = socket.AF_INET6
+        else:
+            print("Invalid server address.")
+            sys.exit(-1)
         self.socket = socket.socket(self.address_family,
                                     self.socket_type)
         if bind_and_activate:
@@ -454,6 +459,27 @@ class TCPServer(BaseServer):
             except:
                 self.server_close()
                 raise
+
+    def is_valid_ipv4_address(self, address):
+        try:
+            socket.inet_pton(socket.AF_INET, address)
+        except AttributeError:  # no inet_pton here, sorry
+            try:
+                socket.inet_aton(address)
+            except socket.error:
+                return False
+            return address.count('.') == 3
+        except socket.error:  # not a valid address
+            return False
+
+        return True
+
+    def is_valid_ipv6_address(self, address):
+        try:
+            socket.inet_pton(socket.AF_INET6, address)
+        except socket.error:  # not a valid address
+            return False
+        return True
 
     def server_bind(self):
         """Called by constructor to bind the socket.

@@ -1,12 +1,13 @@
-import libs.socketserver
+import libs.socketserver as socketserver
 import socket
 import threading
-import socketserver
 from time import sleep
 import socket
 import sys
 from libs.common import *
 import random
+import constants as const
+import ipaddress
 import testing_tools  # TODO remover antes de enviar
 
 encoding = 'ascii'
@@ -35,16 +36,17 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
     def __response_end(self):
         testing_tools.compare_files("input", "output")
+        server.udp_port_list.remove(self.udp_port)  # Remove port from occupied list
         self.__send_response("05")
 
-    def __set_random_udp_port(self, fmts=(int,)):
+    @staticmethod
+    def __set_random_udp_port(fmts=(int,)):
         while True:
             random_port = random.randint(3000, 9999)
             if random_port not in server.udp_port_list:
                 server.udp_port_list.append(random_port)
                 break
         return str(random_port) if str in fmts else random_port
-        # FIXME remover porta após fim do uso, obviamente... se der tempo
 
     @staticmethod
     def __get_file_name_and_size(req):
@@ -54,56 +56,68 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         filesize = int(splits[1][3:])
         return filename, filesize
 
+    @staticmethod
+    def __unpack(packet):
+        seq_number = int.from_bytes(packet[2:6], 'big')
+        payload_size = int.from_bytes(packet[6:8], 'big')
+        payload_data = packet[8:]
+        payload_received_size = len(payload_data)
+        return seq_number, payload_size, payload_data, payload_received_size
+
+    @staticmethod
+    def __verify_buffer(latest_packet, buffer, file):
+        while True:
+            if latest_packet + 1 in buffer.keys():
+                latest_packet += 1
+                file.write(buffer[latest_packet])
+                del buffer[latest_packet]
+            else:
+                break
+        return latest_packet
+
     def __handle_udp_transfer(self, req):
         # Prepare reception for file
-        file_name, file_size = self.__get_file_name_and_size(req[2:])
-        print("File: ", file_name, file_size)
+        file_name, file_size = self.__get_file_name_and_size(req)
+        print(f"File to be Received from <Thread {self.cur_thread.name}>: {file_name} | "
+              f"Size: {file_size}")
+        file_output = open(const.output_folder + file_name, "wb")
 
         # Open UDP server
-        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock_version = socket.AF_INET if ip_version == 4 else socket.AF_INET6
+        udp_sock = socket.socket(sock_version, socket.SOCK_DGRAM)
         udp_sock.bind((host, self.udp_port))
-        self.__response_ok()  # Send ok
+        self.__response_ok()
 
         # Receive
-        received = 0
-        packets_received = []
-        packets_buffer = {}
-        latest_packet = -1
-        f = open("output/" + file_name, "wb")
-        while received < file_size:
+        received_size = 0   # Total data received so far
+        packets_received = []  # Keep track of all packets received
+        packets_buffer = {}  # Temporary store unordered packets
+        latest_packet = -1  # Mark the latest received packet
+
+        while received_size < file_size:
             packet = udp_sock.recv(file_size)
-            print("Packet received: ", packet)
-            file_code = int(packet[:2])
-            seq_number = int.from_bytes(packet[2:6], 'big')
-            payload_size = int.from_bytes(packet[6:8], 'big')
-            payload_data = packet[8:]
-            payload_received_size = len(payload_data)
-            print(f"Receiving data chunk from <Thread {self.cur_thread.name}>. "
-                  f"Size: {payload_size} bytes")
-            while True:
-                if latest_packet+1 in packets_buffer.keys():
-                    latest_packet += 1
-                    f.write(packets_buffer[latest_packet])
-                    del packets_buffer[latest_packet]
-                elif len(packets_buffer.keys()) > 50:  # TODO make this a variable somewhere
-                    self.__send_response("10")  # lost a packet too long ago
-                    # TODO criar handle 10
-                else:
-                    break
-            if seq_number not in packets_received and payload_received_size == payload_size:
-                if seq_number == latest_packet + 1:
-                    f.write(payload_data)
-                    latest_packet += 1
-                else:
-                    packets_buffer[seq_number] = payload_data
-                packets_received.append(seq_number)
-                received += payload_size
-                self.__response_ack(seq_number)
-            elif payload_received_size != payload_size:
-                pass
+            if int(packet[:2]) == 6:  # Check if code is 6(FILE)
+                # Unpack all info from packet
+                seq_number, payload_size, payload_data, payload_received_size = self.__unpack(packet)
+                print(f"Receiving data chunk from <Thread {self.cur_thread.name}>. "
+                      f"Sequence Number: {seq_number}. Size: {payload_size} bytes")
+
+                # Check if the latest packets are waiting in the buffer
+                latest_packet = self.__verify_buffer(latest_packet, packets_buffer, file_output)
+
+                # Verify packet integrity and if it's not repeated before saving
+                if seq_number not in packets_received and payload_received_size == payload_size:
+                    if seq_number == latest_packet + 1:  # Check if it's the latest packet
+                        file_output.write(payload_data)  # Write directly, don't buffer
+                        latest_packet += 1
+                    else:
+                        packets_buffer[seq_number] = payload_data  # Buffer unordered packet
+                    packets_received.append(seq_number)
+                    received_size += payload_size
+                    self.__response_ack(seq_number)  # Ack received packet
         print(f"Completed UDP transfer from <Thread {self.cur_thread.name}>.\n"
-              f"Total Received: {received} Bytes.")
-        f.close()
+              f"Total Received: {received_size} Bytes.")
+        file_output.close()
         udp_sock.close()
 
     # TODO remover todos os *no inspection*
@@ -117,11 +131,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             if msg_id_code == 1:
                 self.__response_connection()
             if msg_id_code == 3:
-                if len(request) > 25:
-                    self.__send_response("09")  # Name too large
-                    # TODO criar handle 09
+                if len(request) > 25 or len(request) < 8:
+                    self.__send_response("08")  # Name too large or too small
                 else:
-                    self.__handle_udp_transfer(request)
+                    self.__handle_udp_transfer(request[2:])
                     self.__response_end()
                     return 0
 
@@ -137,12 +150,19 @@ if __name__ == "__main__":
     if not hasattr(socket, "SO_REUSEPORT"):
         socket.SO_REUSEPORT = 15
 
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         usage("server", sys.argv[0])
 
     testing_tools.delete_files("output")
 
-    host, port = "127.0.0.1", int(sys.argv[1])
+    if sys.argv[2] in ["v4", "V4", "ipv4", "IPV4", "4"]:
+        ip_version = 4
+    elif sys.argv[2] in ["v6", "V6", "ipv6", "IPV6", "6"]:
+        ip_version = 6
+    else:
+        print("Invalid server version. Use v4 or v6")
+        sys.exit()
+    host, port = const.ip_host[sys.argv[2]], int(sys.argv[1])
 
     server = ThreadedTCPServer((host, port), ThreadedTCPRequestHandler)
     with server:
