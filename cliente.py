@@ -44,34 +44,51 @@ class TCPClient:
         self.__send_request("03" + self.file_name + str(self.file_size), sock)
         return udp_port
 
+    def __udp_file_preprocess(self):
+        packet_count = math.ceil(self.file_size / 1000)
+        packets_status = dict.fromkeys(range(packet_count),
+                                       {"status": 0, "payload": b'', "size": 0})
+        return packet_count, packets_status
+
+    def __udp_define_window(self, i, total):
+        return range(i, min(i + const.window_size, total))
+
+    def __udp_initialize_packet(self, seq):
+        packet_payload, packet_size = self.__get_file_chunk()
+        self.packets_status.update(
+            {seq: {"status": 1, "payload": packet_payload, "size": packet_size}})
+
+    def __udp_preprocess_packet(self, seq):
+        return b'06' + seq.to_bytes(4, 'big') \
+        + self.packets_status[seq]["size"].to_bytes(2, 'big') \
+        + self.packets_status[seq]["payload"]
+
     def __handle_udp_transfer(self, server_ip, udp_port, tcp_sock):
+        # Start UDP server
         print(f"--> Sending user datagram protocol file on <{server_ip}>:"
               f"<{udp_port}>")
         sock_version = socket.AF_INET if self.ip_version == 4 else socket.AF_INET6
         udp_sock = socket.socket(sock_version,  # Internet
                                  socket.SOCK_DGRAM)  # UDP
-        i = 0
-        packet_count = math.ceil(self.file_size / 1000)
-        packets_status = dict.fromkeys(range(packet_count),
-                                       {"status": 0, "payload": b'', "size": 0})
-        while i < packet_count:
-            for seq_number in range(i, min(i+const.window_size, packet_count)):
-                if packets_status[seq_number]["status"] == 0:
-                    packet_payload, packet_size = self.__get_file_chunk()
-                    packets_status.update({seq_number: {"status": 1, "payload": packet_payload, "size": packet_size}})
-                if packets_status[seq_number]["status"] == 1:
-                    packet = b'06' + seq_number.to_bytes(4, 'big') \
-                             + packets_status[seq_number]["size"].to_bytes(2, 'big') \
-                             + packets_status[seq_number]["payload"]
+
+        # Start file transfer
+        first_in_window = 0
+        packet_count, self.packets_status = self.__udp_file_preprocess()
+        while first_in_window < packet_count:
+            for seq_number in self.__udp_define_window(first_in_window, packet_count):
+                if self.packets_status[seq_number]["status"] == 0:  # Load packet
+                    self.__udp_initialize_packet(seq_number)
+                if self.packets_status[seq_number]["status"] == 1:  # Send packet
+                    packet = self.__udp_preprocess_packet(seq_number)
                     print(f"--> Sending packet {seq_number+1}/{packet_count}")
                     udp_sock.sendto(packet, (self.server_ip, udp_port))
-                ack = self.__receive_response(tcp_sock, raw=True,
-                                              print_response=False, timeout=1e-2)
-                if len(ack) > 0 and int(ack[:2]) == 7:
+                ack = self.__receive_response(tcp_sock, raw=True, print_response=False,
+                                              timeout=const.udp_timeout)
+                if len(ack) > 0 and int(ack[:2]) == 7:  # Receive ack and mark correspondent packet as ok
                     ack_seq_number = int.from_bytes(ack[2:], 'big')
-                    packets_status[ack_seq_number]["status"] = 2
-                    if ack_seq_number == i:
-                        i += 1
+                    self.packets_status[ack_seq_number]["status"] = 2
+                    if ack_seq_number == first_in_window:
+                        first_in_window += 1
         udp_sock.close()
         print("Done")
 
