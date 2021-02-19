@@ -155,9 +155,9 @@ if __name__ == "__main__":
 
     testing_tools.delete_files("output")
 
-    if sys.argv[2] in ["v4", "V4", "ipv4", "IPV4", "4"]:
+    if sys.argv[2] in const.ipv4_aliases:
         ip_version = 4
-    elif sys.argv[2] in ["v6", "V6", "ipv6", "IPV6", "6"]:
+    elif sys.argv[2] in const.ipv6_aliases:
         ip_version = 6
     else:
         print("Invalid server version. Use v4 or v6")

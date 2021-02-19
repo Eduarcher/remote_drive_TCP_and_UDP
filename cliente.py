@@ -54,13 +54,8 @@ class TCPClient:
         packet_count = math.ceil(self.file_size / 1000)
         packets_status = dict.fromkeys(range(packet_count),
                                        {"status": 0, "payload": b'', "size": 0})
-        end_transmition = False
-        while not end_transmition:
-            if i == packet_count:
-                end_transmition = True
-                break
+        while i < packet_count:
             for seq_number in range(i, min(i+const.window_size, packet_count)):
-                print("[DEBUG] Trying to send Packet: ", seq_number, " | i:", i)
                 if packets_status[seq_number]["status"] == 0:
                     packet_payload, packet_size = self.__get_file_chunk()
                     packets_status.update({seq_number: {"status": 1, "payload": packet_payload, "size": packet_size}})
