@@ -133,6 +133,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             if msg_id_code == 3:
                 if len(request) > 25 or len(request) < 8:
                     self.__send_response("08")  # Name too large or too small
+                    return -1
                 else:
                     self.__handle_udp_transfer(request[2:])
                     self.__response_end()

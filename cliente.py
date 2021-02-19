@@ -90,7 +90,6 @@ class TCPClient:
                     if ack_seq_number == first_in_window:
                         first_in_window += 1
         udp_sock.close()
-        print("Done")
 
     def connect(self):
         sock_version = socket.AF_INET if self.ip_version == 4 else socket.AF_INET6
@@ -111,7 +110,7 @@ class TCPClient:
                     sock.close()
                     return 0
                 if msg_id_code == 8:
-                    print("Invalid name. Max size: 15bytes")
+                    print("Invalid file name. Max size: 15bytes")
                     sock.close()
                     return -1
 
