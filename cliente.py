@@ -6,6 +6,7 @@ import os
 import math
 import constants as const
 import ipaddress
+import random
 
 
 class TCPClient:
@@ -17,7 +18,7 @@ class TCPClient:
         self.port = port
         self.ip_version = ip_version
 
-    def __receive_response(self, sock, raw=False, print_response=True, timeout=False):
+    def __receive_response(self, sock, raw=False, print_response=True, timeout=False, debug=False):
         if timeout:
             sock.settimeout(timeout)
         try:
@@ -25,7 +26,8 @@ class TCPClient:
             if print_response:
                 print(f"<-- Received: {response}")
         except Exception as e:
-            print("No response:",  e)
+            if debug:
+                print("No response:",  e)
             response = b""
         finally:
             return response if raw else str(response, "ascii")
@@ -73,22 +75,30 @@ class TCPClient:
 
         # Start file transfer
         first_in_window = 0
+        acks_pending = 0
         packet_count, self.packets_status = self.__udp_file_preprocess()
-        while first_in_window < packet_count:
+        while first_in_window < packet_count or acks_pending > 0:
             for seq_number in self.__udp_define_window(first_in_window, packet_count):
+                # print(f"[DEBUG]Sending: {seq_number} | i: {first_in_window} | status: {self.packets_status[seq_number]['status']}")
+                if seq_number == first_in_window and self.packets_status[seq_number]["status"] == 2:
+                    first_in_window += 1
                 if self.packets_status[seq_number]["status"] == 0:  # Load packet
                     self.__udp_initialize_packet(seq_number)
+                    acks_pending += 1
                 if self.packets_status[seq_number]["status"] == 1:  # Send packet
                     packet = self.__udp_preprocess_packet(seq_number)
                     print(f"--> Sending packet {seq_number+1}/{packet_count}")
+                    # if random.random() > .8:
+                    #     packet = packet.replace(b's', b'')
+                    # if random.random() < .8: TODO: REMOVER
                     udp_sock.sendto(packet, (self.server_ip, udp_port))
+
                 ack = self.__receive_response(tcp_sock, raw=True, print_response=False,
                                               timeout=const.udp_timeout)
                 if len(ack) > 0 and int(ack[:2]) == 7:  # Receive ack and mark correspondent packet as ok
                     ack_seq_number = int.from_bytes(ack[2:], 'big')
                     self.packets_status[ack_seq_number]["status"] = 2
-                    if ack_seq_number == first_in_window:
-                        first_in_window += 1
+                    acks_pending -= 1
         udp_sock.close()
 
     def connect(self):
@@ -100,19 +110,20 @@ class TCPClient:
 
             while True:
                 response = self.__receive_response(sock)
-                msg_id_code = int(response[:2])
-                if msg_id_code == 2:
-                    udp_port = self.__request_info_file(response, sock)
-                if msg_id_code == 4:
-                    self.__handle_udp_transfer(self.server_ip, udp_port, sock)
-                if msg_id_code == 5:
-                    print("Closing connection")
-                    sock.close()
-                    return 0
-                if msg_id_code == 8:
-                    print("Invalid file name. Max size: 15bytes")
-                    sock.close()
-                    return -1
+                if len(response) >= 2:
+                    msg_id_code = int(response[:2])
+                    if msg_id_code == 2:
+                        udp_port = self.__request_info_file(response, sock)
+                    if msg_id_code == 4:
+                        self.__handle_udp_transfer(self.server_ip, udp_port, sock)
+                    if msg_id_code == 5:
+                        print("Closing connection")
+                        sock.close()
+                        return 0
+                    if msg_id_code == 8:
+                        print("Invalid file name. Max size: 15bytes")
+                        sock.close()
+                        return -1
 
 
 if __name__ == "__main__":

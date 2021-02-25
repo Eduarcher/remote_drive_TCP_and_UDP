@@ -136,6 +136,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     return -1
                 else:
                     self.__handle_udp_transfer(request[2:])
+                    sleep(2)
                     self.__response_end()
                     return 0
 
